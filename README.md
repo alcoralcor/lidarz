@@ -2,8 +2,8 @@
 **Warning:** I'm not a developer!  
 A small Python proof of concept that reads binary data from an OKDO LDO6 LIDAR via the serial port.
 The coordinates are extracted, decoded, converted to Cartesian coordinates and transmitted in batches of 360° measurements to a web page via a WebRTC Data Channel.
-The web page, composed of an HTML file and a Javascript file, is served by the same Python script in HTTP on port 8080. A graphical display shows the real-time measurements taken by the LIDAR.  
-The "LIDAR" code is largely based on James Gibbard's (https://gibbard.me/lidar/).
+The web page (an HTML file with embedded Javascript), is served by the same Python script in HTTP on port 8080. A graphical display shows the real-time measurements taken by the LIDAR.  
+The "LIDAR" code is largely based on James Gibbard's (https://gibbard.me/lidar/).  
 
 ## Requirements :
 - OKDO LIDAR LD06 (small, inexpensive LIDAR)
