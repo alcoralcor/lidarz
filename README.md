@@ -12,6 +12,7 @@ The "LIDAR" code is largely based on James Gibbard's (https://gibbard.me/lidar/)
   
 ## Planned evolutions :
 - Filter the area to be monitored
+- Manage script termination
 - Write Python/HTML/Javascript code cleanly (I need help)
 - Optimize code
   
