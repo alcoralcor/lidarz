@@ -23,9 +23,9 @@ MEASUREMENT_LENGTH = 12
 MESSAGE_FORMAT = "<xBHH" + "HB" * MEASUREMENT_LENGTH + "HHB"
 
 State = Enum("State", ["SYNC0", "SYNC1", "SYNC2", "LOCKED", "UPDATE_PLOT", "WS_SEND"])
-state = State.SYNC0 # looking for message header
-message = b''       # message reconstruction
-message_pos = 0     # position in message
+state = State.SYNC0
+message = b'' 
+message_pos = 0
 
 measurements = []
 
@@ -168,15 +168,13 @@ async def offer(request):
         ),
     )
 
+async def on_shutdown(app):
+    pc.close()
+
 
 async def index(request):
     content = open(os.path.join(ROOT, "index.html"), "r").read()
     return web.Response(content_type="text/html", text=content)
-
-
-async def javascript(request):
-    content = open(os.path.join(ROOT, "client.js"), "r").read()
-    return web.Response(content_type="application/javascript", text=content)
 
 
 async def main():
@@ -195,9 +193,8 @@ async def main():
         print("Data channel opened")
 
     app = web.Application()
-    # app.on_shutdown.append(on_shutdown)
+    app.on_shutdown.append(on_shutdown)
     app.router.add_get("/", index)
-    app.router.add_get("/client.js", javascript)
     app.router.add_post("/offer", offer)
 
     runner = web.AppRunner(app)
