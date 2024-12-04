@@ -11,7 +11,10 @@ Many settings can be done using a .ini file
 - at least one OKDO LIDAR LD06 (small, inexpensive LIDAR)
 - one USB / Serial dongle per LIDAR
 - Python 3.12 (likely to run with earlier versions)
-  
+
+## To do :  
+- fix html/js code to manage the right number of lidars more easily (jinja template?)  
+
 ## Planned evolutions :
 - run a live server with restart of the data channel to be renegotiated.
 - sort python debug and change default name
@@ -21,7 +24,6 @@ Many settings can be done using a .ini file
 - Manage script termination
 - Write Python/HTML/Javascript code cleanly (I need help)
 - Optimize code
-
 
 ## Planned tests :
 - tests on Windows and MacOS
