@@ -10,6 +10,10 @@
     <div id="graph" style="width: 1200px; height: 900px;"></div>
 
     <script>
+        const lidars = ["LIDAR1", "LIDAR2"];
+        lidarRead = [...lidars];
+        allData = [];
+
         let xValues = [];
         let yValues = [];
 
@@ -37,29 +41,36 @@
 
         var pc = null;
         var dc = null;
-        var ct = 0;
 
         async function startConnection() {
 
             pc = new RTCPeerConnection();
             dc = pc.createDataChannel("lidar", { negotiated: true, ordered: true, id: 2 });
 
-
             dc.addEventListener('open', () => {
                 console.log("Data channel opened");
             });
             dc.addEventListener('message', (evt) => {
                 const newData = JSON.parse(evt.data);
-                updateGraph(newData.array[0]);
-                ct += 1;
-                console.log(ct);
+                lidarName = Object.keys(newData)[0];
+                lidarData = Object.values(newData)[0];
+                if (lidarRead.includes(lidarName)) {
+                    lidarRead = lidarRead.filter(item => item !== lidarName);
+                    allData = [...allData, ...lidarData];
+                    if(lidarRead.length === 0) {
+                        updateGraph(allData);
+                        allData = [];
+                        lidarRead = [...lidars];
+                    }
+                } else {
+                    console.log('${lidarName} message rejected') 
+                }
             });
             dc.addEventListener('close', () => {
                 console.log("Data channel closed");
             });
-
+            
             negotiate();
-
         }
 
         function negotiate() {
