@@ -14,9 +14,9 @@ Many settings can be done using a .ini file
 
 ## To do :  
 - fix html/js code to manage the right number of lidars more easily (jinja template?)  
+  actually you need to edit client.js to set up "lidars" variable with the list of lidars names you declared in .ini file.
 
 ## Planned evolutions :
-- run a live server with restart of the data channel to be renegotiated.
 - sort python debug and change default name
 - enable plotly graph setting
 - color points according to lidars?

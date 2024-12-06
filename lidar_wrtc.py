@@ -25,6 +25,7 @@ logger = logging.getLogger("lidar_webrtc_filter.py")
 State = Enum("State", ["SYNC0", "SYNC1", "SYNC2", "LOCKED", "UPDATE_PLOT", "WS_SEND"])
 
 ROOT = os.path.dirname(__file__)
+WEB = os.path.join(ROOT, 'web')
 
 pc = None
 dc = None
@@ -58,7 +59,6 @@ class LidarSerialProtocol(asyncio.Protocol):
         global dc, pc
         serial_data_pos = 0
         serial_data_len = len(serial_data)
-        logger.debug('data received', repr(serial_data), serial_data_len, serial_data_pos, len(self.lidar_message), self.lidar_message_pos)
         while serial_data_pos < serial_data_len:
             if self.state == State.SYNC0:
                 self.lidar_message = b''
@@ -66,7 +66,6 @@ class LidarSerialProtocol(asyncio.Protocol):
                 if serial_data[serial_data_pos:serial_data_pos+1] == b'\x54':
                     self.lidar_message = b'\x54'
                     self.lidar_message_pos += 1
-                    logger.debug(self.state, self.lidar_message, serial_data_len, serial_data_pos, len(self.lidar_message), self.lidar_message_pos)
                     self.state = State.SYNC1
                 else:
                     logger.debug(self.state, '\033[93m\033[1m' + "WARNING: Syncing" + '\033[0m', self.lidar_message, serial_data_len, serial_data_pos, len(self.lidar_message), self.lidar_message_pos)
@@ -76,7 +75,6 @@ class LidarSerialProtocol(asyncio.Protocol):
                 if serial_data[serial_data_pos:serial_data_pos+1] == b'\x2C':
                     self.lidar_message += b'\x2C'
                     self.lidar_message_pos += 1
-                    logger.debug(self.state, self.lidar_message, serial_data_len, serial_data_pos, len(self.lidar_message), self.lidar_message_pos)
                     self.state = State.SYNC2
                 else:
                     logger.debug(self.state, '\033[93m\033[1m' + "WARNING: Second byte not expected" + '\033[0m', self.lidar_message, serial_data_len, serial_data_pos, len(self.lidar_message), self.lidar_message_pos)
@@ -88,7 +86,7 @@ class LidarSerialProtocol(asyncio.Protocol):
                     self.lidar_message += serial_data[serial_data_pos:]
                     self.lidar_message_pos += (serial_data_len - serial_data_pos)
                     serial_data_pos = serial_data_len
-                    logger.debug(self.state, "Message LIDAR à completer", self.lidar_message, serial_data_len, serial_data_pos, len(self.lidar_message), self.lidar_message_pos)
+                    logger.debug(self.state, "Message LIDAR to be completed", self.lidar_message, serial_data_len, serial_data_pos, len(self.lidar_message), self.lidar_message_pos)
                 else:
                     self.lidar_message += serial_data[serial_data_pos:(serial_data_pos + MESSAGE_LENGTH - self.lidar_message_pos)]
                     serial_data_pos += (MESSAGE_LENGTH - self.lidar_message_pos)
@@ -113,7 +111,7 @@ class LidarSerialProtocol(asyncio.Protocol):
                     else:
                         self.state = State.WS_SEND
 
-                    logger.debug(self.state, "Message LIDAR complet", self.lidar_message, serial_data_len, serial_data_pos, len(self.lidar_message), self.lidar_message_pos)
+                    logger.debug(self.state, "Message LIDAR complete", self.lidar_message, serial_data_len, serial_data_pos, len(self.lidar_message), self.lidar_message_pos)
 
             elif self.state == State.WS_SEND:
                 cartesian_coords = self.get_xy_data(self.polar_coords)
@@ -130,20 +128,15 @@ class LidarSerialProtocol(asyncio.Protocol):
 
 
     def parse_lidar_data(self, data):
-        # Extract data
         length, speed, start_angle, *pos_data, stop_angle, timestamp, crc = \
             struct.unpack(MESSAGE_FORMAT, data)
-        # Scale values
         start_angle = float(start_angle) / 100.0
         stop_angle = float(stop_angle) / 100.0
-        # Unwrap angle if needed and calculate angle step size
         if stop_angle < start_angle:
             stop_angle += 360.0
         step_size = (stop_angle - start_angle) / (MEASUREMENT_LENGTH - 1)
-        # Get the angle for each measurement in packet
         angle = [start_angle + step_size * i for i in range(0,MEASUREMENT_LENGTH)]
-        distance = pos_data[0::2] # in millimeters
-        logger.debug("PARSING", length, speed, start_angle, *pos_data, stop_angle, timestamp, crc)
+        distance = pos_data[0::2]
         return list(zip(angle, distance))
 
 
@@ -156,7 +149,6 @@ class LidarSerialProtocol(asyncio.Protocol):
         stackxy = np.dstack((x, y))[0]
 
         result = self.filter_coordinates_in_polygon(stackxy)
-        logger.debug(result)
         return result
 
 
@@ -173,6 +165,21 @@ class NumpyArrayEncoder(JSONEncoder):
 
 
 async def offer(request):
+    global pc, dc
+
+    pc = RTCPeerConnection()
+    dc = pc.createDataChannel("lidar", negotiated=True, ordered=True, id=2)
+
+    @dc.on("open")
+    def on_open():
+        logger.debug("Data channel opened")
+
+    @dc.on("close")
+    def on_close():
+        logger.debug("Data channel closed")
+        dc = None
+
+
     params = await request.json()
     offer = RTCSessionDescription(sdp=params["sdp"], type=params["type"])
 
@@ -181,9 +188,8 @@ async def offer(request):
     @pc.on("connectionstatechange")
     async def on_connectionstatechange():
         logger.debug("Connection state is", pc.connectionState)
-        if pc.connectionState == "failed":
+        if (pc.connectionState in ["closed", "failed", "disconnected"] ):
             await pc.close()
-            pc.discard(pc)
 
     await pc.setRemoteDescription(offer)
 
@@ -198,12 +204,8 @@ async def offer(request):
     )
 
 
-async def on_shutdown(app):
-    pc.close()
-
-
 async def index(request):
-    content = open(os.path.join(ROOT, "index.html"), "r").read()
+    content = open(os.path.join(WEB, "index.html"), "r").read()
     return web.Response(content_type="text/html", text=content)
 
 
@@ -244,16 +246,9 @@ async def main():
             lidar_offset = np.array(eval(offset))
             serials.append(await serial_asyncio_fast.create_serial_connection(loop, type(str(section), (LidarSerialProtocol,),{"name": section, "prepared_polygon": prepared_polygon, "offset": lidar_offset}), url=serial_port, baudrate=serial_baudrate))
 
-    pc = RTCPeerConnection()
-    dc = pc.createDataChannel("lidar", negotiated=True, ordered=True, id=2) #
-
-    @dc.on("open")
-    def on_open():
-        print("Data channel opened")
-
     app = web.Application()
-    app.on_shutdown.append(on_shutdown)
     app.router.add_get("/", index)
+    app.router.add_static('/', WEB, show_index=False)
     app.router.add_post("/offer", offer)
 
     runner = web.AppRunner(app)
