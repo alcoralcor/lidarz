@@ -2,6 +2,7 @@ const button = document.getElementById('dc_close');
 const outputDiv = document.getElementById('dc_close_feedback');
 
 const lidars = ["LIDAR1", "LIDAR2"];
+// const lidars = ["LIDAR1"];
 lidarRead = [...lidars];
 allData = [];
 
@@ -54,7 +55,7 @@ async function startConnection() {
                 lidarRead = [...lidars];
             }
         } else {
-            console.log(`${lidarName} message rejected`) 
+            console.log(`${lidarName} message rejected`);
         }
     });
     dc.addEventListener('close', () => {
@@ -72,7 +73,7 @@ function negotiate() {
         var offer = pc.localDescription;
         var codec;
     
-        return fetch('/offer', {
+        return fetch('/wrtc', {
             body: JSON.stringify({
                 sdp: offer.sdp,
                 type: offer.type

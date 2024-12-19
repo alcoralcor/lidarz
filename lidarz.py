@@ -12,7 +12,7 @@ from enum import Enum
 from json import JSONEncoder
 from shapely.geometry import Point, Polygon
 from shapely.prepared import prep
-from aiohttp import web
+from aiohttp import web, WSMsgType
 from aiortc import RTCPeerConnection, RTCSessionDescription
 
 MESSAGE_LENGTH = 47
@@ -20,16 +20,19 @@ MESSAGE_LENGTH = 47
 MEASUREMENT_LENGTH = 12 
 MESSAGE_FORMAT = "<xBHH" + "HB" * MEASUREMENT_LENGTH + "HHB"
 
-logger = logging.getLogger("lidar_webrtc_filter.py")
+logger = logging.getLogger("lidarz.py")
 
 State = Enum("State", ["SYNC0", "SYNC1", "SYNC2", "LOCKED", "UPDATE_PLOT", "WS_SEND"])
 
 ROOT = os.path.dirname(__file__)
 WEB = os.path.join(ROOT, 'web')
 
-pc = None
-dc = None
-serials = []
+lidars = []
+
+wrtc_pc = None
+wrtc_dc = None
+
+ws_client = None
 
 # Lidar Serial read
 
@@ -56,7 +59,7 @@ class LidarSerialProtocol(asyncio.Protocol):
         self.transport.loop.stop()
 
     def data_received(self, serial_data):
-        global dc, pc
+        global wrtc_dc, wrtc_pc, ws_client
         serial_data_pos = 0
         serial_data_len = len(serial_data)
         while serial_data_pos < serial_data_len:
@@ -117,11 +120,16 @@ class LidarSerialProtocol(asyncio.Protocol):
                 cartesian_coords = self.get_xy_data(self.polar_coords)
                 numpyData = {self.name: cartesian_coords}
                 encodedNumpyData = json.dumps(numpyData, cls=NumpyArrayEncoder)
-                if dc != None:
-                    if dc.readyState == "open":
-                        dc.send(encodedNumpyData)
-                else:
-                    logger.debug("NO DATA CHANNEL")
+                if wrtc_dc != None:
+                    if wrtc_dc.readyState == "open":
+                        wrtc_dc.send(encodedNumpyData)
+                if ws_client != None:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        asyncio.create_task(ws_client.send_str(encodedNumpyData))
+                    else:
+                        loop.run_until_complete(ws_client.send_str(encodedNumpyData))
+
                 self.polar_coords = list(tuple(self.next_polar_coords))
                 self.next_polar_coords = []
                 self.state = State.SYNC0
@@ -164,45 +172,63 @@ class NumpyArrayEncoder(JSONEncoder):
         return JSONEncoder.default(self, obj)
 
 
-async def offer(request):
-    global pc, dc
+async def webrtc_handler(request):
+    global wrtc_pc, wrtc_dc
 
-    pc = RTCPeerConnection()
-    dc = pc.createDataChannel("lidar", negotiated=True, ordered=True, id=2)
+    wrtc_pc = RTCPeerConnection()
+    wrtc_dc = wrtc_pc.createDataChannel("lidar", negotiated=True, ordered=True, id=2)
 
-    @dc.on("open")
+    @wrtc_dc.on("open")
     def on_open():
         logger.debug("Data channel opened")
 
-    @dc.on("close")
+    @wrtc_dc.on("close")
     def on_close():
         logger.debug("Data channel closed")
         dc = None
-
 
     params = await request.json()
     offer = RTCSessionDescription(sdp=params["sdp"], type=params["type"])
 
     logger.debug("Created for", request.remote)
 
-    @pc.on("connectionstatechange")
+    @wrtc_pc.on("connectionstatechange")
     async def on_connectionstatechange():
-        logger.debug("Connection state is", pc.connectionState)
-        if (pc.connectionState in ["closed", "failed", "disconnected"] ):
-            await pc.close()
+        logger.debug("Connection state is", wrtc_pc.connectionState)
+        if (wrtc_pc.connectionState in ["closed", "failed", "disconnected"] ):
+            await wrtc_pc.close()
 
-    await pc.setRemoteDescription(offer)
+    await wrtc_pc.setRemoteDescription(offer)
 
-    answer = await pc.createAnswer()
-    await pc.setLocalDescription(answer)
+    answer = await wrtc_pc.createAnswer()
+    await wrtc_pc.setLocalDescription(answer)
 
     return web.Response(
         content_type="application/json",
         text=json.dumps(
-            {"sdp": pc.localDescription.sdp, "type": pc.localDescription.type}
+            {"sdp": wrtc_pc.localDescription.sdp, "type": wrtc_pc.localDescription.type}
         ),
     )
 
+async def websocket_handler(request):
+    global ws_client
+    ws = web.WebSocketResponse()
+    await ws.prepare(request)
+    
+    ws_client = ws
+    print("Client connecté")
+
+    try:
+        async for msg in ws:
+            if msg.type == WSMsgType.TEXT:
+                print(f"Message reçu : {msg.data}")
+            elif msg.type == WSMsgType.ERROR:
+                print(f"Erreur WebSocket : {ws.exception()}")
+    finally:
+        ws_client = None
+        print("Client déconnecté")
+
+    return ws
 
 async def index(request):
     content = open(os.path.join(WEB, "index.html"), "r").read()
@@ -210,7 +236,7 @@ async def index(request):
 
 
 async def main():
-    global dc, pc, serials
+    global wrtc_dc, wrtc_pc, lidars, ws_client
 
     parser = argparse.ArgumentParser(
         prog="Lidar WebRTC",
@@ -226,14 +252,18 @@ async def main():
         logging.basicConfig(level=logging.INFO)
 
     config = configparser.ConfigParser()
-    config.read('lidar_wrtc.ini')
+    config.read('lidarz.ini')
 
     loop = asyncio.get_event_loop()
 
     for section in config.sections():
-        if section == "WEBRTCSERVER":
-            server_host = config["WEBRTCSERVER"].get("server-host", "0.0.0.0")
-            server_port = config["WEBRTCSERVER"].getint("server-port", 8080)
+        if section == "WEBSERVER":
+            server_host = config["WEBSERVER"].get("server-host", "0.0.0.0")
+            server_port = config["WEBSERVER"].getint("server-port", 8080)
+        elif section == "WEBRTC":
+            webrtc_enabled = config["WEBRTC"].getboolean("enable", True)
+        elif section == "WEBSOCKET":
+            websocket_enabled = config["WEBSOCKET"].getboolean("enable", True)
         elif section.startswith("LIDAR"):
             serial_port = config[section].get("serial-port", "/dev/ttyUSB0")
             serial_baudrate = config[section].getint("serial-baudrate", 230400)
@@ -244,12 +274,15 @@ async def main():
             polygon = Polygon(lidar_filter)    
             prepared_polygon = prep(polygon)
             lidar_offset = np.array(eval(offset))
-            serials.append(await serial_asyncio_fast.create_serial_connection(loop, type(str(section), (LidarSerialProtocol,),{"name": section, "prepared_polygon": prepared_polygon, "offset": lidar_offset}), url=serial_port, baudrate=serial_baudrate))
+            lidars.append(await serial_asyncio_fast.create_serial_connection(loop, type(str(section), (LidarSerialProtocol,),{"name": section, "prepared_polygon": prepared_polygon, "offset": lidar_offset}), url=serial_port, baudrate=serial_baudrate))
 
     app = web.Application()
     app.router.add_get("/", index)
     app.router.add_static('/', WEB, show_index=False)
-    app.router.add_post("/offer", offer)
+    if webrtc_enabled:
+        app.router.add_post("/wrtc", webrtc_handler)
+    if websocket_enabled:
+        app.router.add_get('/ws', websocket_handler)
 
     runner = web.AppRunner(app)
     await runner.setup()
@@ -257,6 +290,7 @@ async def main():
     await site.start()
 
     logger.info("Server started. Point browser to " + site.name)
+
     await asyncio.Event().wait()
     loop.close()
 
@@ -264,4 +298,3 @@ async def main():
 if __name__ == "__main__":
     asyncio.run(main())
     
-
