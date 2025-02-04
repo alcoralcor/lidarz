@@ -116,7 +116,7 @@ function initLidarz() {
 
 async function run() {
     try {
-        const response = await fetch("http://0.0.0.0:8080/config");
+        const response = await fetch(`http://${location.host}/config`);
         if (!response.ok) {
             throw new Error(`Response status: ${response.status}`);
         }

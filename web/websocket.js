@@ -26,10 +26,8 @@ const layout = {
     yaxis: { title: 'Y', fixedrange: true, range: [-0.1, 3.05], visible: false}, autosize: false, width: '1920', height: '1200', margin: {l: 0, r: 0, b: 0, t: 0, pad: 0}
 };
 
-// Plotly.newPlot('graph', [trace], layout);
-
 function updateGraph(newTraces) {
-    Plotly.newPlot('graph', newTraces, layout, {staticPlot: true}); //, {staticPlot: true}
+    Plotly.newPlot('graph', newTraces, layout, {staticPlot: true});
 }
 
 async function startConnection() {
@@ -83,7 +81,7 @@ function initLidarz() {
 
 async function run() {
     try {
-        const response = await fetch("http://0.0.0.0:8080/config");
+        const response = await fetch(`http://${location.host}/config`);
         if (!response.ok) {
             throw new Error(`Response status: ${response.status}`);
         }
