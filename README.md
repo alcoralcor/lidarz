@@ -5,15 +5,16 @@ A small Python proof of concept that reads binary data from at least one OKDO LD
 The coordinates are extracted, decoded, converted to Cartesian coordinates and transmitted in batches of 360° measurements to a web page via a WebRTC Data Channel and/or a Websocket.
 A polygonal filter and an offset position can be applied to each LIDAR.
 The web page (an HTML file with embedded Javascript), is served by the same Python script in HTTP on port 8080. A graphical display shows the real-time measurements taken by the LIDAR(s).  
-The "LIDAR" decoding is largely based on James Gibbard's (https://gibbard.me/lidar/).  
-Many settings can be done using a .ini file
+The "LIDAR" binary decoding is largely based on James Gibbard's (https://gibbard.me/lidar/).  
+Many settings can be done using a .ini file.  
 
 This project is designed very basically to meet execution needs in a local installation.
 
 ## Requirements :
-- at least one OKDO LIDAR LD06 (small, inexpensive LIDAR)  
-- as many USB / Serial dongle per LIDAR  
-- Python 3.12 (likely to run with earlier versions)  
+- Hardware with USB > 2.0 and Linux, Windows or Mac OS X (Tested on Ubuntu 24.04, 22.04, Windows 11 and Mac OS X Sequoia),
+- at least one OKDO LIDAR LD06 (small, inexpensive LIDAR),
+- as many USB / Serial dongle per LIDAR,
+- Python 3.12 (likely to run with earlier versions).
 
 ## To do :  
 - fix html/js code to manage the right number of lidars more easily (jinja template?)  

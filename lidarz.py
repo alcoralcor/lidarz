@@ -29,6 +29,8 @@ WEB = os.path.join(ROOT, 'web')
 
 lidars = []
 
+web_config = {}
+
 wrtc_pc = None
 wrtc_dc = None
 
@@ -40,6 +42,7 @@ class LidarSerialProtocol(asyncio.Protocol):
     name = None
     prepared_polygon = None
     offset = np.array([0.0, 0.0])
+    rotate = 0.0
 
     def __init__(self):
         super().__init__()
@@ -120,10 +123,10 @@ class LidarSerialProtocol(asyncio.Protocol):
                 cartesian_coords = self.get_xy_data(self.polar_coords)
                 numpyData = {self.name: cartesian_coords}
                 encodedNumpyData = json.dumps(numpyData, cls=NumpyArrayEncoder)
-                if wrtc_dc != None:
+                if wrtc_dc is not None:
                     if wrtc_dc.readyState == "open":
                         wrtc_dc.send(encodedNumpyData)
-                if ws_client != None:
+                if ws_client is not None:
                     loop = asyncio.get_event_loop()
                     if loop.is_running():
                         asyncio.create_task(ws_client.send_str(encodedNumpyData))
@@ -151,6 +154,10 @@ class LidarSerialProtocol(asyncio.Protocol):
     def get_xy_data(self, measurements):
         angle = np.array([measurement[0] for measurement in measurements])
         distance = np.array([measurement[1] for measurement in measurements])
+
+        if self.rotate > 0.0:
+            angle_index = np.argmax(angle >= self.rotate)
+            angle = np.roll(angle, -angle_index)
 
         x = np.sin(np.radians(angle)) * (distance / 1000.0)
         y = np.cos(np.radians(angle)) * (distance / 1000.0)
@@ -230,7 +237,13 @@ async def websocket_handler(request):
 
     return ws
 
-async def index(request):
+
+async def config_handler(request):
+    content = json.dumps(web_config)
+    return web.Response(content_type="application/json", text=content)
+
+
+async def index_handler(request):
     content = open(os.path.join(WEB, "index.html"), "r").read()
     return web.Response(content_type="text/html", text=content)
 
@@ -260,6 +273,10 @@ async def main():
         if section == "WEBSERVER":
             server_host = config["WEBSERVER"].get("server-host", "0.0.0.0")
             server_port = config["WEBSERVER"].getint("server-port", 8080)
+            if config["WEBSERVER"].getboolean("debug", False):
+                web_config["DEBUG"] = True
+            else:
+                web_config["DEBUG"] = False
         elif section == "WEBRTC":
             webrtc_enabled = config["WEBRTC"].getboolean("enable", True)
         elif section == "WEBSOCKET":
@@ -267,17 +284,21 @@ async def main():
         elif section.startswith("LIDAR"):
             serial_port = config[section].get("serial-port", "/dev/ttyUSB0")
             serial_baudrate = config[section].getint("serial-baudrate", 230400)
-            filter = config[section].get("filter", "[(-12.0, -12.0), (-12.0, 12.0), (12.0, 12.0), (12.0, -12.0)]")
-            offset = config[section].get("offset", "[0.0, 0.0]")
+            # filter = config[section].get("filter", "[(-12.0, -12.0), (-12.0, 12.0), (12.0, 12.0), (12.0, -12.0)]")
+            lidar_filter = eval(config[section].get("filter", "[(-12.0, -12.0), (-12.0, 12.0), (12.0, 12.0), (12.0, -12.0)]"))
+            lidar_offset = np.array(eval(config[section].get("offset", "[0.0, 0.0]")))
+            lidar_rotate = config[section].getfloat("rotate", 0.0)
 
-            lidar_filter = eval(filter)
             polygon = Polygon(lidar_filter)    
             prepared_polygon = prep(polygon)
-            lidar_offset = np.array(eval(offset))
-            lidars.append(await serial_asyncio_fast.create_serial_connection(loop, type(str(section), (LidarSerialProtocol,),{"name": section, "prepared_polygon": prepared_polygon, "offset": lidar_offset}), url=serial_port, baudrate=serial_baudrate))
+            # lidar_offset = np.array(eval(offset))
+
+            lidars.append(await serial_asyncio_fast.create_serial_connection(loop, type(str(section), (LidarSerialProtocol,),{"name": section, "prepared_polygon": prepared_polygon, "offset": lidar_offset, "rotate": lidar_rotate}), url=serial_port, baudrate=serial_baudrate))
+            web_config[section] = (lidar_filter + lidar_offset).tolist()
 
     app = web.Application()
-    app.router.add_get("/", index)
+    app.router.add_get("/", index_handler)
+    app.router.add_get("/config", config_handler)
     app.router.add_static('/', WEB, show_index=False)
     if webrtc_enabled:
         app.router.add_post("/wrtc", webrtc_handler)
@@ -297,4 +318,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-    

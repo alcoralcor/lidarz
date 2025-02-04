@@ -1,10 +1,16 @@
-const button = document.getElementById('dc_close');
-const outputDiv = document.getElementById('dc_close_feedback');
+const buttonClose = document.getElementById('dc_close');
+const outputClose = document.getElementById('dc_close_feedback');
 
-const lidars = ["LIDAR1", "LIDAR2"];
-// const lidars = ["LIDAR1"];
-lidarRead = [...lidars];
-allData = [];
+const buttonDebug = document.getElementById('dc_debug');
+const outputDebug = document.getElementById('dc_debug_feedback');
+
+const colors = ["red", "green", "dodgerblue", "orange", "saddlebrown"];
+const debugColors = ["pink", "lightgreen", "lightblue", "peachpuff", "rosybrown"];
+
+let debug;
+let webConfig;
+let lidars = [];
+let allData = [];
 
 let xValues = [];
 let yValues = [];
@@ -13,7 +19,8 @@ const trace = {
     x: xValues,
     y: yValues,
     mode: 'markers+lines',
-    type: 'scatter'
+    type: 'scatter',
+    marker: {color: 'black'}
 };
 
 const layout = {
@@ -24,18 +31,14 @@ const layout = {
 
 Plotly.newPlot('graph', [trace], layout);
 
-function updateGraph(newPoints) {
-    xValues = newPoints.map(point => point[0]);
-    yValues = newPoints.map(point => point[1]);
-
-    Plotly.react('graph', [{ x: xValues, y: yValues, mode: 'markers+lines', type: 'scatter' }], layout);
+function updateGraph(newTraces) {
+    Plotly.react('graph', newTraces, layout);
 }
 
 var pc = null;
 var dc = null;
 
 async function startConnection() {
-
     pc = new RTCPeerConnection();
     dc = pc.createDataChannel("lidar", { negotiated: true, ordered: true, id: 2 });
 
@@ -48,7 +51,19 @@ async function startConnection() {
         lidarData = Object.values(newData)[0];
         if (lidarRead.includes(lidarName)) {
             lidarRead = lidarRead.filter(item => item !== lidarName);
-            allData = [...allData, ...lidarData];
+
+            if (debug) {
+                xValues = webConfig[lidarName].map(point => point[0]);
+                yValues = webConfig[lidarName].map(point => point[1]);
+                graphData = { x: xValues, y: yValues, mode: 'lines', type: 'scatter', line: {dash: 'dash', width: 2, color: debugColors[lidars.indexOf(lidarName)]}, name: "DEBUG " + lidarName};
+                allData.push(graphData);
+            }
+
+            xValues = lidarData.map(point => point[0]);
+            yValues = lidarData.map(point => point[1]);
+            graphData = { x: xValues, y: yValues, mode: 'markers', type: 'scatter', marker: {size: 3, color: debug?colors[lidars.indexOf(lidarName)]:"blue"}, name: lidarName };
+            allData.push(graphData);
+
             if(lidarRead.length === 0) {
                 updateGraph(allData);
                 allData = [];
@@ -60,7 +75,7 @@ async function startConnection() {
     });
     dc.addEventListener('close', () => {
         console.log("Data channel closed");
-        outputDiv.textContent = "CLOSED";
+        outputClose.textContent = "CLOSED";
     });
     
     negotiate();
@@ -93,9 +108,34 @@ function negotiate() {
     });
 }
 
-window.onload = () => {
+function initLidarz() {
+    lidars = Object.keys(webConfig).filter(item => item !== "DEBUG");
+    lidarRead = [...lidars];
     startConnection();
-    button.addEventListener('click', () => {
+}
+
+async function run() {
+    try {
+        const response = await fetch("http://0.0.0.0:8080/config");
+        if (!response.ok) {
+            throw new Error(`Response status: ${response.status}`);
+        }
+        webConfig = await response.json();
+        debug = webConfig["DEBUG"];
+        outputDebug.textContent = debug ? "ON" : "OFF";
+        initLidarz();
+    } catch (error) {
+        console.error(error.message);
+    }
+}
+
+window.onload = () => {
+    buttonClose.addEventListener('click', () => {
         dc.close();
     });
+    buttonDebug.addEventListener('click', () => {
+        debug = !debug;
+        outputDebug.textContent = debug ? "ON" : "OFF";
+    });
+    run();
 };
