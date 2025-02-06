@@ -23,11 +23,7 @@ const trace = {
     marker: {color: 'black'}
 };
 
-const layout = {
-    title: 'OKDO LD06 to WebRTC Data Channel',
-    xaxis: { title: 'X' },
-    yaxis: { title: 'Y' }
-};
+let layout = {};
 
 Plotly.newPlot('graph', [trace], layout);
 
@@ -53,8 +49,10 @@ async function startConnection() {
             lidarRead = lidarRead.filter(item => item !== lidarName);
 
             if (debug) {
-                xValues = webConfig[lidarName].map(point => point[0]);
-                yValues = webConfig[lidarName].map(point => point[1]);
+                const zone = [...webConfig[lidarName]];
+                zone.push([...webConfig[lidarName][0]]);
+                xValues = zone.map(point => point[0]);
+                yValues = zone.map(point => point[1]);
                 graphData = { x: xValues, y: yValues, mode: 'lines', type: 'scatter', line: {dash: 'dash', width: 2, color: debugColors[lidars.indexOf(lidarName)]}, name: "DEBUG " + lidarName};
                 allData.push(graphData);
             }
@@ -123,6 +121,55 @@ async function run() {
         webConfig = await response.json();
         debug = webConfig["DEBUG"];
         outputDebug.textContent = debug ? "ON" : "OFF";
+
+        const ranges = Object.keys(webConfig)
+            .filter(key => key.startsWith("LIDAR"))
+            .map(key => webConfig[key])
+            .flat();
+        const xs = ranges.map(p => p[0]);
+        const ys = ranges.map(p => p[1]);
+
+        let xmin = Math.min(...xs);
+        let xmax = Math.max(...xs);
+        let ymin = Math.min(...ys);
+        let ymax = Math.max(...ys);
+
+        const xMargin = (xmax - xmin) * 0.01;
+        const yMargin = (ymax - ymin) * 0.01;
+
+        xmin -= xMargin;
+        xmax += xMargin;
+        ymin -= yMargin;
+        ymax += yMargin;
+
+        const bboxWidth = xmax - xmin;
+        const bboxHeight = ymax - ymin;
+
+        const aspectRatio = bboxWidth / bboxHeight;
+
+        const frameWidth = 1920;
+        const frameHeight = 1200;
+
+        let finalWidth, finalHeight;
+
+        if (aspectRatio > frameWidth / frameHeight) {
+            finalWidth = frameWidth;
+            finalHeight = frameWidth / aspectRatio;
+        } else {
+            finalHeight = frameHeight;
+            finalWidth = frameHeight * aspectRatio;
+        }
+
+        layout = {
+            title: 'OKDO LD06 to WebSocket',
+            xaxis: { title: 'X', fixedrange: true, range: [xmin, xmax], visible: false},
+            yaxis: { title: 'Y', fixedrange: true, range: [ymin, ymax], visible: false},
+            autosize: false,
+            width: finalWidth,
+            height: finalHeight,
+            margin: {l: 0, r: 0, b: 0, t: 0, pad: 0}
+        };
+
         initLidarz();
     } catch (error) {
         console.error(error.message);

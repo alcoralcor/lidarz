@@ -39,7 +39,6 @@ ws_client = None
 
 # Lidar Serial read
 
-
 class LidarSerialProtocol(asyncio.Protocol):
     name = None
     prepared_polygon = None
@@ -76,15 +75,7 @@ class LidarSerialProtocol(asyncio.Protocol):
                     self.lidar_message_pos += 1
                     self.state = State.SYNC1
                 else:
-                    logger.debug(
-                        self.state,
-                        "\033[93m\033[1m" + "WARNING: Syncing" + "\033[0m",
-                        self.lidar_message,
-                        serial_data_len,
-                        serial_data_pos,
-                        len(self.lidar_message),
-                        self.lidar_message_pos,
-                    )
+                    logger.warning("\033[93m\033[1m" + "WARNING: Syncing" + "\033[0m")
                 serial_data_pos += 1
 
             elif self.state == State.SYNC1:
@@ -93,11 +84,9 @@ class LidarSerialProtocol(asyncio.Protocol):
                     self.lidar_message_pos += 1
                     self.state = State.SYNC2
                 else:
-                    logger.debug(
+                    logger.warning(
                         self.state,
-                        "\033[93m\033[1m"
-                        + "WARNING: Second byte not expected"
-                        + "\033[0m",
+                        "\033[93m\033[1m" + "WARNING: Second byte not expected"  + "\033[0m",
                         self.lidar_message,
                         serial_data_len,
                         serial_data_pos,
@@ -108,26 +97,13 @@ class LidarSerialProtocol(asyncio.Protocol):
                 serial_data_pos += 1
 
             elif self.state == State.SYNC2:
-                if (serial_data_len - serial_data_pos) < (
-                    MESSAGE_LENGTH - self.lidar_message_pos
-                ):
+                if (serial_data_len - serial_data_pos) < (MESSAGE_LENGTH - self.lidar_message_pos):
                     self.lidar_message += serial_data[serial_data_pos:]
                     self.lidar_message_pos += serial_data_len - serial_data_pos
                     serial_data_pos = serial_data_len
-                    logger.debug(
-                        self.state,
-                        "Message LIDAR to be completed",
-                        self.lidar_message,
-                        serial_data_len,
-                        serial_data_pos,
-                        len(self.lidar_message),
-                        self.lidar_message_pos,
-                    )
                 else:
                     self.lidar_message += serial_data[
-                        serial_data_pos : (
-                            serial_data_pos + MESSAGE_LENGTH - self.lidar_message_pos
-                        )
+                        serial_data_pos : (serial_data_pos + MESSAGE_LENGTH - self.lidar_message_pos)
                     ]
                     serial_data_pos += MESSAGE_LENGTH - self.lidar_message_pos
                     lidar_message_parsed = self.parse_lidar_data(self.lidar_message)
@@ -139,39 +115,22 @@ class LidarSerialProtocol(asyncio.Protocol):
                     else:
                         new_polar_coords = False
                     for lidar_message_index in range(1, len(lidar_message_parsed)):
-                        if lidar_message_parsed[lidar_message_index][0] < 360.0:
-                            if new_polar_coords:
-                                self.next_polar_coords.append(
-                                    lidar_message_parsed[lidar_message_index]
-                                )
+                        if lidar_message_parsed[lidar_message_index][2] > self.confidence:
+                            if lidar_message_parsed[lidar_message_index][0] < 360.0:
+                                if new_polar_coords:
+                                    self.next_polar_coords.append(lidar_message_parsed[lidar_message_index])
+                                else:
+                                    self.polar_coords.append(lidar_message_parsed[lidar_message_index])
                             else:
-                                self.polar_coords.append(
-                                    lidar_message_parsed[lidar_message_index]
-                                )
-                        else:
-                            self.next_polar_coords.append(
-                                tuple(
-                                    (
-                                        lidar_message_parsed[lidar_message_index][0]
-                                        - 360,
+                                self.next_polar_coords.append(
+                                    tuple((lidar_message_parsed[lidar_message_index][0] - 360,
                                         lidar_message_parsed[lidar_message_index][1],
-                                    )
+                                        lidar_message_parsed[lidar_message_index][2]))
                                 )
-                            )
                     if self.next_polar_coords == []:
                         self.state = State.SYNC0
                     else:
                         self.state = State.WS_SEND
-
-                    logger.debug(
-                        self.state,
-                        "Message LIDAR complete",
-                        self.lidar_message,
-                        serial_data_len,
-                        serial_data_pos,
-                        len(self.lidar_message),
-                        self.lidar_message_pos,
-                    )
 
             elif self.state == State.WS_SEND:
                 cartesian_coords = self.get_xy_data(self.polar_coords)
@@ -202,7 +161,8 @@ class LidarSerialProtocol(asyncio.Protocol):
         step_size = (stop_angle - start_angle) / (MEASUREMENT_LENGTH - 1)
         angle = [start_angle + step_size * i for i in range(0, MEASUREMENT_LENGTH)]
         distance = pos_data[0::2]
-        return list(zip(angle, distance))
+        confidence = pos_data[1::2]
+        return list(zip(angle, distance, confidence))
 
     def get_xy_data(self, measurements):
         angle = np.array([measurement[0] for measurement in measurements])
@@ -212,8 +172,8 @@ class LidarSerialProtocol(asyncio.Protocol):
             angle_index = np.argmax(angle >= self.rotate)
             angle = np.roll(angle, -angle_index)
 
-        x = np.sin(np.radians(angle)) * (distance / 1000.0)
-        y = np.cos(np.radians(angle)) * (distance / 1000.0)
+        x = np.sin(np.radians(angle)) * (distance / 900.0)
+        y = np.cos(np.radians(angle)) * (distance / 900.0)
         stackxy = np.dstack((x, y))[0]
 
         result = self.filter_coordinates_in_polygon(stackxy)
@@ -221,8 +181,7 @@ class LidarSerialProtocol(asyncio.Protocol):
 
     def filter_coordinates_in_polygon(self, coordinates):
         filtered_coordinates = (
-            np.array([point.tolist() for point in coordinates if self.prepared_polygon.contains(Point(point))])
-            + self.offset
+            np.array([point.tolist() for point in coordinates if self.prepared_polygon.contains(Point(point))]) + self.offset
         )
         return filtered_coordinates
 
@@ -233,6 +192,7 @@ class NumpyArrayEncoder(JSONEncoder):
             return obj.tolist()
         return JSONEncoder.default(self, obj)
 
+# WebRTC
 
 async def webrtc_handler(request):
     global wrtc_pc, wrtc_dc
@@ -272,6 +232,7 @@ async def webrtc_handler(request):
         ),
     )
 
+# WebSocket
 
 async def websocket_handler(request):
     global ws_client
@@ -279,20 +240,21 @@ async def websocket_handler(request):
     await ws.prepare(request)
 
     ws_client = ws
-    logger.info("Websocket client connected")
+    logger.debug("Websocket client connected")
 
     try:
         async for msg in ws:
             if msg.type == WSMsgType.TEXT:
-                logger.info(f"Message reçu : {msg.data}")
+                logger.warning(f"Message reçu : {msg.data}")
             elif msg.type == WSMsgType.ERROR:
-                logger.info(f"Erreur WebSocket : {ws.exception()}")
+                logger.error(f"Erreur WebSocket : {ws.exception()}")
     finally:
         ws_client = None
-        logger.info("Websocket client disconnected")
+        logger.debug("Websocket client disconnected")
 
     return ws
 
+# Web Server
 
 async def config_handler(request):
     content = json.dumps(web_config)
@@ -303,6 +265,7 @@ async def index_handler(request):
     content = open(os.path.join(WEB, "index.html"), "r").read()
     return web.Response(content_type="text/html", text=content)
 
+# Main
 
 async def main():
     global wrtc_dc, wrtc_pc, lidars, ws_client
@@ -350,10 +313,10 @@ async def main():
             lidar_filter = eval(config[section].get("filter","[(-12.0, -12.0), (-12.0, 12.0), (12.0, 12.0), (12.0, -12.0)]"))
             lidar_offset = np.array(eval(config[section].get("offset", "[0.0, 0.0]")))
             lidar_rotate = config[section].getfloat("rotate", 0.0)
+            lidar_confidence = config[section].getint("confidence", 0)
 
             polygon = Polygon(lidar_filter)
             prepared_polygon = prep(polygon)
-            # lidar_offset = np.array(eval(offset))
 
             lidars.append(
                 await serial_asyncio_fast.create_serial_connection(
@@ -366,6 +329,7 @@ async def main():
                             "prepared_polygon": prepared_polygon,
                             "offset": lidar_offset,
                             "rotate": lidar_rotate,
+                            "confidence": lidar_confidence
                         },
                     ),
                     url=serial_port,
