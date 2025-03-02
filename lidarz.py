@@ -260,6 +260,11 @@ async def config_handler(request):
     content = json.dumps(web_config)
     return web.Response(content_type="application/json", text=content)
 
+async def healthcheck_handler(request):
+    if ws_client is None:
+        return web.Response(status=503)
+    else:
+        return web.Response(status=200)
 
 async def index_handler(request):
     content = open(os.path.join(WEB, "index.html"), "r").read()
@@ -340,6 +345,7 @@ async def main():
 
     app = web.Application()
     app.router.add_get("/", index_handler)
+    app.router.add_get("/healthcheck", healthcheck_handler)
     app.router.add_get("/config", config_handler)
     app.router.add_static("/", WEB, show_index=False)
     if webrtc_enabled:
