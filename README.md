@@ -15,7 +15,8 @@ This project is designed very basically to meet execution needs in a local insta
 
 ## Known issues :
 
-- Sometimes on Mac OS X : ValueError when adding offset to LIDAR coordinates.
+- Error when quitting
+- WebRTC not stable (may be removed because I finally don't use it)
 
 ## Requirements :
 
@@ -32,22 +33,14 @@ This project is designed very basically to meet execution needs in a local insta
 
 All help is welcome :
 
-- enable plotly graph setting
-- Manage script termination
+- Manage script termination (Ctrl+C)
 - Write Python/HTML/Javascript code cleanly
 - Optimize code
 
 ## Planned tests :
 
 - tests on Windows and MacOS X (quickly but successfully tested)
-- check LIDAR positioning and filters
-- test with more than 2 LIDARs (quickly but successfully tested with 3 LIDARs)
 - test with non-orthogonal shape filters
-
-## Possible evolutions :
-
-- Object tracking
-- Multi-zone triggering
 
 ## Notes
 

@@ -21,8 +21,6 @@ MESSAGE_LENGTH = 47
 MEASUREMENT_LENGTH = 12
 MESSAGE_FORMAT = "<xBHH" + "HB" * MEASUREMENT_LENGTH + "HHB"
 
-logger = logging.getLogger("LIDARZ")
-
 State = Enum("State", ["SYNC0", "SYNC1", "SYNC2", "LOCKED", "UPDATE_PLOT", "WS_SEND"])
 
 ROOT = os.path.dirname(__file__)
@@ -36,6 +34,24 @@ wrtc_pc = None
 wrtc_dc = None
 
 ws_client = None
+
+# Logger
+
+class NoDuplicateFilter(logging.Filter):
+    def __init__(self):
+        super().__init__()
+        self.last_message = None
+
+    def filter(self, record):
+        if record.getMessage() == self.last_message:
+            return False
+        self.last_message = record.getMessage()
+        return True
+
+logging.basicConfig(level=logging.ERROR)
+logger = logging.getLogger("LIDARZ")
+logger.setLevel(logging.ERROR)
+logger.addFilter(NoDuplicateFilter())
 
 # Lidar Serial read
 
@@ -75,7 +91,7 @@ class LidarSerialProtocol(asyncio.Protocol):
                     self.lidar_message_pos += 1
                     self.state = State.SYNC1
                 else:
-                    logger.warning("\033[93m\033[1m" + "WARNING: Syncing" + "\033[0m")
+                    logger.warning("\033[93m\033[1m" + "Syncing" + "\033[0m")
                 serial_data_pos += 1
 
             elif self.state == State.SYNC1:
@@ -84,15 +100,7 @@ class LidarSerialProtocol(asyncio.Protocol):
                     self.lidar_message_pos += 1
                     self.state = State.SYNC2
                 else:
-                    logger.warning(
-                        self.state,
-                        "\033[93m\033[1m" + "WARNING: Second byte not expected"  + "\033[0m",
-                        self.lidar_message,
-                        serial_data_len,
-                        serial_data_pos,
-                        len(self.lidar_message),
-                        self.lidar_message_pos,
-                    )
+                    logger.warning("\033[93m\033[1m" + "Second byte not expected"  + "\033[0m")
                     self.state = State.SYNC0
                 serial_data_pos += 1
 
@@ -181,8 +189,10 @@ class LidarSerialProtocol(asyncio.Protocol):
 
     def filter_coordinates_in_polygon(self, coordinates):
         filtered_coordinates = (
-            np.array([point.tolist() for point in coordinates if self.prepared_polygon.contains(Point(point))]) + self.offset
+            np.array([point.tolist() for point in coordinates if self.prepared_polygon.contains(Point(point))])
         )
+        if filtered_coordinates.size > 0:
+            filtered_coordinates += self.offset
         return filtered_coordinates
 
 
@@ -294,7 +304,7 @@ async def main():
     if not os.path.exists(args.config):
         logger.error("Configuration file not found")
         return
-    logger.info("Configuration file: " + args.config)
+    print(f"Configuration file: {args.config}")
     config = configparser.ConfigParser()
     config.read(args.config)
 
@@ -350,17 +360,17 @@ async def main():
     app.router.add_static("/", WEB, show_index=False)
     if webrtc_enabled:
         app.router.add_post("/wrtc", webrtc_handler)
-        logger.info("WebRTC server enabled")
+        print("WebRTC server enabled")
     if websocket_enabled:
         app.router.add_get("/ws", websocket_handler)
-        logger.info("WebSocket server enabled")
+        print("WebSocket server enabled")
 
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
     site = web.TCPSite(runner, host=server_host, port=server_port)
     await site.start()
 
-    logger.info("Server started. Point browser to " + site.name)
+    print(f"Server started. Point browser to {site.name}")
 
     await asyncio.Event().wait()
     loop.close()
